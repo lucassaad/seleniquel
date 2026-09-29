@@ -5,14 +5,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // Jogadores que giram nos rolos. Para adicionar mais, basta incluir novos itens na lista.
 type Player = {
   name: string;
+  number: string;
+  description: string;
   reel: string; // imagem que gira nos rolos
   win: string;  // imagem exibida no popup de vitória
 };
 
 const PLAYERS: Player[] = [
-  { name: "Cauê",   reel: "/players/reel/caue.png",   win: "/players/win/caue.jpeg" },
-  { name: "Israel", reel: "/players/reel/israel.png", win: "/players/win/israel.jpeg" },
-  { name: "Lucca",  reel: "/players/reel/lucca.png",  win: "/players/win/lucca.png" },
+  {
+    name: "Cauê", number: "10", description: "Jogador de rara precisão, raramente precisam dele.",
+    reel: "/players/reel/caue.png",   win: "/players/win/caue.jpeg",
+  },
+  {
+    name: "Israel", number: "14", description: "Esse é nosso menino talento:Tá lento na defesa, tá lento no meio, tá lento no ataque",
+    reel: "/players/reel/israel.png", win: "/players/win/israel.jpeg",
+  },
+  {
+    name: "Lucca", number: "07", description: "Jogador que busca um ano melhor que ano passado…Só precisa de um gol",
+    reel: "/players/reel/lucca.png",  win: "/players/win/lucca.png",
+  },
 ];
 
 // Chance de forçar 3 iguais em cada puxada (0 = puramente aleatório, 1 = sempre ganha)
@@ -146,6 +157,8 @@ export default function SlotMachine() {
     return () => window.removeEventListener("keydown", onKey);
   }, [winner]);
 
+  const winPlayer = winner !== null ? PLAYERS[winner] : null;
+
   return (
     <div className="sm-root">
       <style>{CSS}</style>
@@ -198,14 +211,29 @@ export default function SlotMachine() {
       </button>
       </div>
 
-      {winner !== null && (
+      {winPlayer && (
         <div className="sm-overlay" role="dialog" aria-modal="true" aria-label="Você ganhou">
           <div className="sm-popup">
             <div className="sm-popup-title">JACKPOT!</div>
-            <div className="sm-popup-photo">
-              <img src={PLAYERS[winner].win} alt={PLAYERS[winner].name} />
+            <div className="sm-popup-body">
+              <dl className="sm-info">
+                {([
+                  ["Nome", winPlayer.name],
+                  ["Número", winPlayer.number],
+                ] as const).map(([label, value]) => (
+                  <div className="sm-field" key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="sm-popup-photo">
+                <img src={winPlayer.win} alt={winPlayer.name} />
+              </div>
             </div>
-            <div className="sm-popup-sub">{PLAYERS[winner].name}</div>
+            {winPlayer.description && (
+              <div className="sm-desc">{winPlayer.description}</div>
+            )}
             <button className="sm-btn" autoFocus onClick={() => setWinner(null)}>
               JOGAR DE NOVO
             </button>
@@ -252,7 +280,13 @@ const CSS = `
   display:flex;flex-direction:column;align-items:center;gap:16px;animation:sm-pop .4s steps(4)}
 .sm-popup-title{font-size:clamp(18px,6vw,28px);color:var(--gold);text-shadow:4px 4px 0 var(--ink);animation:sm-blink .7s steps(2) infinite}
 .sm-img{width:88%;height:88%;object-fit:contain;pointer-events:none;-webkit-user-drag:none}
-.sm-popup-photo{--photo:min(56vw,240px,32vh);--photo:min(56vw,240px,32dvh);box-sizing:content-box;flex:none;overflow:hidden;background:var(--white);border:4px solid var(--ink);padding:8px;width:var(--photo);height:var(--photo);display:flex;align-items:center;justify-content:center}
+.sm-popup{width:min(100%,440px);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto}
+.sm-popup-body{display:flex;align-items:center;gap:12px;width:100%}
+.sm-info{flex:1;min-width:0;margin:0;text-align:left;display:flex;flex-direction:column;gap:10px}
+.sm-field dt{color:var(--gold);font-size:12px;margin-bottom:4px;text-shadow:2px 2px 0 var(--ink)}
+.sm-field dd{margin:0;color:var(--white);font-size:10px;line-height:1.5;overflow-wrap:anywhere}
+.sm-desc{width:100%;box-sizing:border-box;border:2px solid rgba(255,210,63,.75);background:var(--navy);padding:10px;text-align:left;font-size:9px;line-height:1.6;overflow-wrap:anywhere}
+.sm-popup-photo{--photo:min(34vw,170px,28vh);--photo:min(34vw,170px,28dvh);box-sizing:content-box;flex:none;overflow:hidden;background:var(--white);border:4px solid var(--ink);padding:8px;width:var(--photo);height:var(--photo);display:flex;align-items:center;justify-content:center}
 .sm-popup-photo img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
 .sm-popup-sub{font-size:12px;color:var(--white)}
 .sm-btn{font:inherit;font-size:11px;cursor:pointer;background:var(--gold);color:var(--ink);border:4px solid var(--ink);padding:14px 16px;min-height:48px;box-shadow:4px 4px 0 var(--ink)}
