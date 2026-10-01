@@ -1,49 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PLAYERS } from "./data/players";
+import "./App.css";
+
 
 /* ---------- Configuração (edite aqui) ---------- */
 
-// Jogadores que giram nos rolos. Para adicionar mais, basta incluir novos itens na lista.
-type Player = {
-  name: string;
-  number: string;
-  description: string;
-  reel: string; // imagem que gira nos rolos
-  win: string;  // imagem exibida no popup de vitória
-  winPreview?: string;   // imagem exibida brevemente antes da imagem final
-  winPreviewMs?: number; // duração do preview em ms (padrão 500)
-};
-
-const PLAYERS: Player[] = [
-  // {
-  //   name: "Cauê", number: "10", description: "Jogador de rara precisão, raramente precisam dele.",
-  //   reel: "/players/reel/caue.png",   win: "/players/win/caue.jpeg",
-  // },
-  // {
-  //   name: "Israel", number: "14", description: "Esse é nosso menino talento:Tá lento na defesa, tá lento no meio, tá lento no ataque",
-  //   reel: "/players/reel/israel.png", win: "/players/win/israel.jpeg",
-  // },
-  // {
-  //   name: "Lucca", number: "07", description: "Jogador que busca um ano melhor que ano passado…Só precisa de um gol",
-  //   reel: "/players/reel/lucca.png",  win: "/players/win/lucca.png",
-  // },
-  {
-    name: "Caixeta", number: "14", description: "Jogador que veio do zero e tá lá até hoje",
-    reel: "/players/reel/caixeta.png",  win: "/players/win/caixeta.png",
-    winPreview: "/players/win/cruxen.png", winPreviewMs: 500,
-  },
-  {
-    name: "Rafa", number: "06", description: "Se talento vem de berço, esse aí dormia no chão.",
-    reel: "/players/reel/rafa.png",  win: "/players/win/rafa.png",
-  },
-  {
-    name: "Lucas", number: "01", description: "Jogador que tá virando influencer! Tá influenciando bastante nas derrotas",
-    reel: "/players/reel/flu.png",  win: "/players/win/flu.png",
-  },
-];
-
-
 // Chance de forçar 3 iguais em cada puxada (0 = puramente aleatório, 1 = sempre ganha)
 const WIN_CHANCE = 0.7;
+
+// Álbum: chave do localStorage e se o nome fica escondido ("???") enquanto não achou
+const STORAGE_KEY = "seleniquel:found";
+const HIDE_LOCKED_NAMES = false;
 
 const N = PLAYERS.length;
 const REELS = 3;
@@ -69,6 +36,18 @@ const easeOutBack = (t: number) => {
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 };
 
+const loadFound = (): string[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr)
+      ? arr.filter((n) => PLAYERS.some((p) => p.name === n))
+      : [];
+  } catch {
+    return [];
+  }
+};
+
 /* ---------- Componente ---------- */
 
 export default function SlotMachine() {
@@ -82,6 +61,12 @@ export default function SlotMachine() {
   const [pulled, setPulled] = useState(false);
   const [winner, setWinner] = useState<number | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+
+  // Álbum
+  const [found, setFound] = useState<string[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+  const [albumOpen, setAlbumOpen] = useState(false);
+  const [viewing, setViewing] = useState<number | null>(null);
 
   const raf = useRef(0);
   const last = useRef(0);
@@ -116,9 +101,12 @@ export default function SlotMachine() {
       const res = reels.current.map((r) => mod(Math.round(r.pos)));
       setBusy(false);
       if (res.every((v) => v === res[0])) {
-        // os dois estados mudam juntos, então não há flash da imagem final
-        setShowPreview(!!PLAYERS[res[0]].winPreview);
+        const player = PLAYERS[res[0]];
+        // os estados mudam juntos, então não há flash da imagem final
+        setShowPreview(!!player.winPreview);
         setWinner(res[0]);
+        // adiciona ao álbum (sem duplicar)
+        setFound((prev) => (prev.includes(player.name) ? prev : [...prev, player.name]));
       }
     }
   }, []);
@@ -173,12 +161,34 @@ export default function SlotMachine() {
     });
   }, []);
 
+  // Carrega o álbum salvo ao abrir o site
   useEffect(() => {
-    if (winner === null) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setWinner(null);
+    setFound(loadFound());
+    setHydrated(true);
+  }, []);
+
+  // Salva o álbum sempre que mudar (só depois de carregar, para não apagar o que já existe)
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(found));
+    } catch {
+      /* armazenamento bloqueado: o álbum só vale nesta visita */
+    }
+  }, [found, hydrated]);
+
+  // Escape: fecha primeiro o popup, depois o álbum
+  useEffect(() => {
+    if (winner === null && viewing === null && !albumOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (winner !== null) setWinner(null);
+      else if (viewing !== null) setViewing(null);
+      else setAlbumOpen(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [winner]);
+  }, [winner, viewing, albumOpen]);
 
   // Timer do preview: depois do tempo configurado, troca para a imagem final
   useEffect(() => {
@@ -192,12 +202,14 @@ export default function SlotMachine() {
     return () => clearTimeout(id);
   }, [winner]);
 
-  const winPlayer = winner !== null ? PLAYERS[winner] : null;
+  // O popup serve para a vitória (winner) e para ver figurinha do álbum (viewing)
+  const isWin = winner !== null;
+  const shownIdx = winner ?? viewing;
+  const winPlayer = shownIdx !== null ? PLAYERS[shownIdx] : null;
+  const closePopup = () => (isWin ? setWinner(null) : setViewing(null));
 
   return (
     <div className="sm-root">
-      <style>{CSS}</style>
-
       <h1 className="sm-title">SELENIQUEL</h1>
 
       <div className="sm-stage">
@@ -246,10 +258,52 @@ export default function SlotMachine() {
       </button>
       </div>
 
+      <button className="sm-btn" onClick={() => setAlbumOpen(true)} disabled={busy}>
+        ÁLBUM {found.length}/{N}
+      </button>
+
+      {albumOpen && (
+        <div className="sm-overlay" role="dialog" aria-modal="true" aria-label="Álbum de figurinhas">
+          <div className="sm-album">
+            <div className="sm-popup-title">ÁLBUM</div>
+            <div className="sm-album-count">{found.length}/{N} ENCONTRADOS</div>
+            <div className="sm-grid">
+              {PLAYERS.map((p, i) => {
+                const got = found.includes(p.name);
+                return (
+                  <button
+                    key={p.name}
+                    className={`sm-card ${got ? "" : "locked"}`}
+                    disabled={!got}
+                    onClick={() => setViewing(i)}
+                    aria-label={got ? p.name : `${p.name} (ainda não encontrado)`}
+                  >
+                    <span className="sm-card-photo">
+                      <img src={p.reel} alt="" draggable={false} />
+                    </span>
+                    <span className="sm-card-name">
+                      {got || !HIDE_LOCKED_NAMES ? p.name : "???"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <button className="sm-btn" autoFocus onClick={() => setAlbumOpen(false)}>
+              FECHAR
+            </button>
+          </div>
+        </div>
+      )}
+
       {winPlayer && (
-        <div className="sm-overlay" role="dialog" aria-modal="true" aria-label="Você ganhou">
+        <div
+          className="sm-overlay top"
+          role="dialog"
+          aria-modal="true"
+          aria-label={isWin ? "Você ganhou" : "Figurinha"}
+        >
           <div className="sm-popup">
-            <div className="sm-popup-title">JACKPOT!</div>
+            <div className="sm-popup-title">{isWin ? "JACKPOT!" : "FIGURINHA"}</div>
             <div className="sm-popup-body">
               <dl className="sm-info">
                 {([
@@ -264,7 +318,7 @@ export default function SlotMachine() {
               </dl>
               <div className="sm-popup-photo">
                 <img
-                  src={showPreview && winPlayer.winPreview ? winPlayer.winPreview : winPlayer.win}
+                  src={isWin && showPreview && winPlayer.winPreview ? winPlayer.winPreview : winPlayer.win}
                   alt={winPlayer.name}
                 />
               </div>
@@ -272,8 +326,8 @@ export default function SlotMachine() {
             {winPlayer.description && (
               <div className="sm-desc">{winPlayer.description}</div>
             )}
-            <button className="sm-btn" autoFocus onClick={() => setWinner(null)}>
-              JOGAR DE NOVO
+            <button className="sm-btn" autoFocus onClick={closePopup}>
+              {isWin ? "JOGAR DE NOVO" : "FECHAR"}
             </button>
           </div>
         </div>
@@ -281,57 +335,3 @@ export default function SlotMachine() {
     </div>
   );
 }
-
-/* ---------- Estilos ---------- */
-
-const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-.sm-root{--c:clamp(52px,calc((100vw - 206px)/3),92px);--ink:#08080C;--blue:#1150D8;--navy:#0A2A7A;--sky:#5CC8FF;--gold:#FFD23F;--white:#FFFFFF;
-  min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(14px,4vw,28px);box-sizing:border-box;
-  padding:max(12px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));
-  background:#050B22 repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.04) 3px 4px);
-  font-family:'Press Start 2P',monospace;color:var(--white);image-rendering:pixelated;touch-action:manipulation;-webkit-user-select:none;user-select:none}
-.sm-title{margin:0;font-size:clamp(16px,7.5vw,32px);font-weight:400;line-height:1;text-align:center;color:var(--gold);
-  text-shadow:4px 4px 0 var(--ink),-2px -2px 0 var(--ink),2px -2px 0 var(--ink),-2px 2px 0 var(--ink)}
-.sm-stage{position:relative}
-.sm-cabinet{background:var(--blue);border:6px solid var(--ink);box-shadow:6px 6px 0 var(--ink),inset 0 0 0 4px var(--sky);padding:12px;display:flex;flex-direction:column;gap:12px}
-.sm-marquee{background:var(--white);color:var(--blue);text-align:center;padding:12px 6px;font-size:clamp(9px,3.2vw,16px);border:4px solid var(--ink);
-  box-shadow:inset 0 -6px 0 rgba(10,42,122,.25);text-shadow:2px 2px 0 var(--sky);animation:sm-glow 1.2s steps(2) infinite}
-.sm-screen{position:relative;display:flex;gap:6px;background:var(--ink);padding:6px;border:4px solid #000}
-.sm-reel{position:relative;width:var(--c);height:calc(var(--c)*3);overflow:hidden;background:var(--white);border:4px solid #000;
-  box-shadow:inset 0 10px 14px rgba(10,42,122,.35),inset 0 -10px 14px rgba(10,42,122,.35)}
-.sm-cell{position:absolute;left:0;right:0;top:33.3333%;height:33.3333%;display:flex;align-items:center;justify-content:center;font-size:calc(var(--c)*.6);line-height:1;will-change:transform}
-.sm-line{position:absolute;left:0;right:0;top:50%;height:4px;margin-top:-2px;background:var(--gold);box-shadow:0 0 0 2px var(--ink);pointer-events:none}
-.sm-scan{position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.14) 0 2px,transparent 2px 4px)}
-.sm-panel{background:var(--ink);border:4px solid #000;padding:10px 6px;text-align:center;font-size:clamp(7px,2.4vw,11px);color:var(--sky)}
-.sm-blink{animation:sm-blink .5s steps(2) infinite}
-.sm-lever{all:unset;cursor:pointer;position:absolute;z-index:2;left:calc(100% - 10px);top:50%;width:56px;height:240px;margin-top:-120px;display:block;-webkit-tap-highlight-color:transparent}
-.sm-lever:disabled{cursor:default}
-.sm-lever:focus-visible{outline:4px solid var(--sky);outline-offset:2px}
-.sm-base{position:absolute;left:50%;top:50%;width:44px;height:48px;margin:-24px 0 0 -22px;background:var(--navy);border:4px solid var(--ink);box-shadow:inset -6px 0 0 rgba(0,0,0,.35)}
-.sm-arm{position:absolute;left:50%;top:50%;width:14px;height:96px;margin-left:-7px;margin-top:-96px;background:var(--white);border:3px solid var(--ink);
-  transform-origin:50% 100%;transition:transform .25s steps(5)}
-.sm-arm.down{transform:scaleY(-.9);transition-duration:.2s}
-.sm-ball{position:absolute;left:50%;top:-30px;width:40px;height:40px;margin-left:-23px;background:var(--gold);border:4px solid var(--ink);border-radius:50%;box-shadow:inset -6px -6px 0 rgba(0,0,0,.25),inset 5px 5px 0 rgba(255,255,255,.55)}
-.sm-overlay{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(3,6,20,.85)}
-.sm-popup{background:var(--blue);border:6px solid var(--gold);box-shadow:0 0 0 6px var(--ink),8px 8px 0 6px var(--ink);padding:22px 16px;text-align:center;max-width:100%;box-sizing:border-box;
-  display:flex;flex-direction:column;align-items:center;gap:16px;animation:sm-pop .4s steps(4)}
-.sm-popup-title{font-size:clamp(18px,6vw,28px);color:var(--gold);text-shadow:4px 4px 0 var(--ink);animation:sm-blink .7s steps(2) infinite}
-.sm-img{width:88%;height:88%;object-fit:contain;pointer-events:none;-webkit-user-drag:none}
-.sm-popup{width:min(100%,440px);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto}
-.sm-popup-body{display:flex;align-items:center;gap:12px;width:100%}
-.sm-info{flex:1;min-width:0;margin:0;text-align:left;display:flex;flex-direction:column;gap:10px}
-.sm-field dt{color:var(--gold);font-size:12px;margin-bottom:4px;text-shadow:2px 2px 0 var(--ink)}
-.sm-field dd{margin:0;color:var(--white);font-size:10px;line-height:1.5;overflow-wrap:anywhere}
-.sm-desc{width:100%;box-sizing:border-box;border:2px solid rgba(255,210,63,.75);background:var(--navy);padding:10px;text-align:left;font-size:9px;line-height:1.6;overflow-wrap:anywhere}
-.sm-popup-photo{--photo:min(34vw,170px,28vh);--photo:min(34vw,170px,28dvh);box-sizing:content-box;flex:none;overflow:hidden;background:var(--white);border:4px solid var(--ink);padding:8px;width:var(--photo);height:var(--photo);display:flex;align-items:center;justify-content:center}
-.sm-popup-photo img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
-.sm-popup-sub{font-size:12px;color:var(--white)}
-.sm-btn{font:inherit;font-size:11px;cursor:pointer;background:var(--gold);color:var(--ink);border:4px solid var(--ink);padding:14px 16px;min-height:48px;box-shadow:4px 4px 0 var(--ink)}
-.sm-btn:active{transform:translate(4px,4px);box-shadow:none}
-.sm-btn:focus-visible{outline:4px solid var(--white);outline-offset:3px}
-@keyframes sm-blink{50%{opacity:.25}}
-@keyframes sm-glow{50%{filter:brightness(.92)}}
-@keyframes sm-pop{from{transform:scale(.4)}to{transform:scale(1)}}
-@media (prefers-reduced-motion:reduce){.sm-marquee,.sm-blink,.sm-popup,.sm-popup-title{animation:none}}
-`;
