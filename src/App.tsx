@@ -9,22 +9,38 @@ type Player = {
   description: string;
   reel: string; // imagem que gira nos rolos
   win: string;  // imagem exibida no popup de vitória
+  winPreview?: string;   // imagem exibida brevemente antes da imagem final
+  winPreviewMs?: number; // duração do preview em ms (padrão 500)
 };
 
 const PLAYERS: Player[] = [
+  // {
+  //   name: "Cauê", number: "10", description: "Jogador de rara precisão, raramente precisam dele.",
+  //   reel: "/players/reel/caue.png",   win: "/players/win/caue.jpeg",
+  // },
+  // {
+  //   name: "Israel", number: "14", description: "Esse é nosso menino talento:Tá lento na defesa, tá lento no meio, tá lento no ataque",
+  //   reel: "/players/reel/israel.png", win: "/players/win/israel.jpeg",
+  // },
+  // {
+  //   name: "Lucca", number: "07", description: "Jogador que busca um ano melhor que ano passado…Só precisa de um gol",
+  //   reel: "/players/reel/lucca.png",  win: "/players/win/lucca.png",
+  // },
   {
-    name: "Cauê", number: "10", description: "Jogador de rara precisão, raramente precisam dele.",
-    reel: "/players/reel/caue.png",   win: "/players/win/caue.jpeg",
+    name: "Caixeta", number: "14", description: "Jogador que veio do zero e tá lá até hoje",
+    reel: "/players/reel/caixeta.png",  win: "/players/win/caixeta.png",
+    winPreview: "/players/win/cruxen.png", winPreviewMs: 500,
   },
   {
-    name: "Israel", number: "14", description: "Esse é nosso menino talento:Tá lento na defesa, tá lento no meio, tá lento no ataque",
-    reel: "/players/reel/israel.png", win: "/players/win/israel.jpeg",
+    name: "Rafa", number: "06", description: "Se talento vem de berço, esse aí dormia no chão.",
+    reel: "/players/reel/rafa.png",  win: "/players/win/rafa.png",
   },
   {
-    name: "Lucca", number: "07", description: "Jogador que busca um ano melhor que ano passado…Só precisa de um gol",
-    reel: "/players/reel/lucca.png",  win: "/players/win/lucca.png",
+    name: "Lucas", number: "01", description: "Jogador que tá virando influencer! Tá influenciando bastante nas derrotas",
+    reel: "/players/reel/flu.png",  win: "/players/win/flu.png",
   },
 ];
+
 
 // Chance de forçar 3 iguais em cada puxada (0 = puramente aleatório, 1 = sempre ganha)
 const WIN_CHANCE = 0.7;
@@ -65,6 +81,7 @@ export default function SlotMachine() {
   const [busy, setBusy] = useState(false);
   const [pulled, setPulled] = useState(false);
   const [winner, setWinner] = useState<number | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const raf = useRef(0);
   const last = useRef(0);
@@ -98,7 +115,11 @@ export default function SlotMachine() {
       round.current = false;
       const res = reels.current.map((r) => mod(Math.round(r.pos)));
       setBusy(false);
-      if (res.every((v) => v === res[0])) setWinner(res[0]);
+      if (res.every((v) => v === res[0])) {
+        // os dois estados mudam juntos, então não há flash da imagem final
+        setShowPreview(!!PLAYERS[res[0]].winPreview);
+        setWinner(res[0]);
+      }
     }
   }, []);
 
@@ -143,10 +164,12 @@ export default function SlotMachine() {
     };
   }, []);
 
+  // Pré-carrega todas as imagens (inclusive o preview)
   useEffect(() => {
     PLAYERS.forEach((p) => {
       new Image().src = p.reel;
       new Image().src = p.win;
+      if (p.winPreview) new Image().src = p.winPreview;
     });
   }, []);
 
@@ -155,6 +178,18 @@ export default function SlotMachine() {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setWinner(null);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [winner]);
+
+  // Timer do preview: depois do tempo configurado, troca para a imagem final
+  useEffect(() => {
+    if (winner === null) {
+      setShowPreview(false);
+      return;
+    }
+    const p = PLAYERS[winner];
+    if (!p.winPreview) return;
+    const id = window.setTimeout(() => setShowPreview(false), p.winPreviewMs ?? 500);
+    return () => clearTimeout(id);
   }, [winner]);
 
   const winPlayer = winner !== null ? PLAYERS[winner] : null;
@@ -228,7 +263,10 @@ export default function SlotMachine() {
                 ))}
               </dl>
               <div className="sm-popup-photo">
-                <img src={winPlayer.win} alt={winPlayer.name} />
+                <img
+                  src={showPreview && winPlayer.winPreview ? winPlayer.winPreview : winPlayer.win}
+                  alt={winPlayer.name}
+                />
               </div>
             </div>
             {winPlayer.description && (
